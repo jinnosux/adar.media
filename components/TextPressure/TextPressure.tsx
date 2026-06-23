@@ -1,5 +1,7 @@
 'use client';
 
+// Component ported from https://codepen.io/JuanFuentes/full/rgXKGQ
+
 import { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 
 interface TextPressureProps {
@@ -15,6 +17,7 @@ interface TextPressureProps {
   scale?: boolean;
   textColor?: string;
   strokeColor?: string;
+  strokeWidth?: number;
   className?: string;
   minFontSize?: number;
 }
@@ -42,8 +45,10 @@ const debounce = (func: (...args: any[]) => void, delay: number) => {
 
 const TextPressure: React.FC<TextPressureProps> = ({
   text = 'Compressa',
-  fontFamily = 'Compressa VF',
-  fontUrl = 'https://res.cloudinary.com/dr6lvwubh/raw/upload/v1529908256/CompressaPRO-GX.woff2',
+  fontFamily = 'Roboto Flex',
+  // Self-hosted variable font (see public/fonts). Avoids the external @import the
+  // react-bits original ships with, which is render-blocking and a 404 risk.
+  fontUrl = '/fonts/RobotoFlex-VF.woff2',
   width = true,
   weight = true,
   italic = true,
@@ -53,6 +58,7 @@ const TextPressure: React.FC<TextPressureProps> = ({
   scale = false,
   textColor = '#FFFFFF',
   strokeColor = '#FF0000',
+  strokeWidth = 2,
   className = '',
   minFontSize = 24
 }) => {
@@ -112,6 +118,23 @@ const TextPressure: React.FC<TextPressureProps> = ({
     requestAnimationFrame(() => {
       if (!titleRef.current) return;
       const textRect = titleRef.current.getBoundingClientRect();
+
+      // Fit the text to the container width. The <h1> is stretched to 100% by
+      // `flex justify-between`, so its own width always equals the container and
+      // can't reveal overflow — measure the actual glyph width by summing the
+      // letter spans instead. Glyph advance scales linearly with font size, so we
+      // can solve for the size that makes the letters span the container. 0.95
+      // leaves slack so the weight/width hover animation can't push them past the
+      // edges (where overflow-hidden would clip them, e.g. "ADAR.MED|IA").
+      const glyphsWidth = spansRef.current.reduce(
+        (sum, span) => sum + (span ? span.getBoundingClientRect().width : 0),
+        0
+      );
+      const renderedSize = parseFloat(getComputedStyle(titleRef.current).fontSize);
+      if (renderedSize > 0 && glyphsWidth > 0) {
+        const fitted = Math.max((renderedSize * containerW * 0.95) / glyphsWidth, minFontSize);
+        setFontSize(fitted);
+      }
 
       if (scale && textRect.height > 0) {
         const yRatio = containerH / textRect.height;
@@ -177,15 +200,10 @@ const TextPressure: React.FC<TextPressureProps> = ({
       <style>{`
         @font-face {
           font-family: '${fontFamily}';
-          src: url('${fontUrl}');
+          src: url('${fontUrl}') format('woff2');
           font-style: normal;
+          font-display: swap;
         }
-
-        .flex {
-          display: flex;
-          justify-content: space-between;
-        }
-
         .stroke span {
           position: relative;
           color: ${textColor};
@@ -197,46 +215,30 @@ const TextPressure: React.FC<TextPressureProps> = ({
           top: 0;
           color: transparent;
           z-index: -1;
-          -webkit-text-stroke-width: 3px;
+          -webkit-text-stroke-width: ${strokeWidth}px;
           -webkit-text-stroke-color: ${strokeColor};
-        }
-
-        .text-pressure-title {
-          color: ${textColor};
         }
       `}</style>
     );
-  }, [fontFamily, fontUrl, flex, stroke, textColor, strokeColor]);
-
-  const dynamicClassName = [className, flex ? 'flex' : '', stroke ? 'stroke' : ''].filter(Boolean).join(' ');
+  }, [fontFamily, fontUrl, stroke, textColor, strokeColor, strokeWidth]);
 
   return (
-    <div
-      ref={containerRef}
-      style={{
-        position: 'relative',
-        width: '100%',
-        height: '100%',
-        background: 'transparent'
-      }}
-    >
+    <div ref={containerRef} className="relative w-full h-full overflow-hidden bg-transparent">
       {styleElement}
       <h1
         ref={titleRef}
-        className={`text-pressure-title ${dynamicClassName}`}
+        className={`text-pressure-title ${className} w-full ${
+          flex ? 'flex justify-between' : ''
+        } ${stroke ? 'stroke' : ''} uppercase text-center`}
         style={{
           fontFamily,
-          textTransform: 'uppercase',
           fontSize: fontSize,
           lineHeight,
           transform: `scale(1, ${scaleY})`,
           transformOrigin: 'center top',
           margin: 0,
-          textAlign: 'center',
-          userSelect: 'none',
-          whiteSpace: 'nowrap',
           fontWeight: 100,
-          width: '100%'
+          color: stroke ? undefined : textColor
         }}
       >
         {chars.map((char, i) => (
@@ -246,10 +248,7 @@ const TextPressure: React.FC<TextPressureProps> = ({
               spansRef.current[i] = el;
             }}
             data-char={char}
-            style={{
-              display: 'inline-block',
-              color: stroke ? undefined : textColor
-            }}
+            className="inline-block"
           >
             {char}
           </span>
